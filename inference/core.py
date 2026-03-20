@@ -42,8 +42,7 @@ def build_inference_model(
     checkpoint_state = load_checkpoint_state(model_weight_path, map_location="cpu")
     num_classes = infer_num_classes(checkpoint_state)
 
-    model = VideoReIDInferenceModel(settings, camera_num=camera_num, view_num=view_num)
-    model.num_classes = num_classes
+    model = VideoReIDInferenceModel(settings, num_classes=num_classes, camera_num=camera_num, view_num=view_num)
     model.load_param(model_weight_path, map_location=resolved_device)
     model.eval()
     model.to(resolved_device)
@@ -76,3 +75,5 @@ def run_inference(model, video_tensor, cam_label=None, view_label=None, device=N
 
     with torch.no_grad():
         return model(video_tensor, cam_label=cam_label, view_label=view_label)
+
+
