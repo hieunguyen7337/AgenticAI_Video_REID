@@ -35,8 +35,9 @@ echo '=========='
 echo 'Activate conda env'
 echo '=========='
 source ~/miniconda3/etc/profile.d/conda.sh
-# Activate the environment specified in README.md
-conda activate tfclip
+CONDA_ENV_NAME="${CONDA_ENV_NAME:-tfclip_a100}"
+echo "Activating conda env: ${CONDA_ENV_NAME}"
+conda activate "${CONDA_ENV_NAME}"
 
 echo '=========='
 echo 'Environment diagnostics'
