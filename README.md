@@ -2,6 +2,56 @@
 
 This repository contains a minimal inference entrypoint for the CLIP-based video re-identification model in this project.
 
+## Inference Function
+
+The main entrypoint is `run_simple_inference` in [simple_inference.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/simple_inference.py).
+
+Function arguments:
+
+- `model_weight_path`: path to the trained re-ID checkpoint, for example `logs_mars/best_model.pth.tar`
+- `config_path`: path to the YAML config, by default `configs/vit_clipreid.yml`
+- `clip_pretrain_path`: optional path to the CLIP `ViT-B-16.pt` pretrained checkpoint
+- `device`: optional execution device, either `cuda` or `cpu`
+
+Internal model input:
+
+- The function creates a dummy video tensor with shape `(B, T, C, H, W)`
+- `B`: batch size
+- `T`: sequence length from `cfg.INPUT.SEQ_LEN`
+- `C`: 3 RGB channels
+- `H`: test image height from `cfg.INPUT.SIZE_TEST[0]`
+- `W`: test image width from `cfg.INPUT.SIZE_TEST[1]`
+
+For the default config in this repo, the dummy inference input is:
+
+- `B=2`
+- `T=8`
+- `C=3`
+- `H=256`
+- `W=128`
+
+Additional inference inputs:
+
+- `cam_label`: camera IDs for each item in the batch, shape `(B,)`
+- `view_label`: view IDs for each item in the batch, shape `(B,)`
+
+Output:
+
+- The function returns a feature tensor for each input tracklet
+- In evaluation mode with `TEST.NECK_FEAT: 'before'`, the output is the concatenation of:
+- image feature
+- projected image feature
+- temporal feature
+
+For the current working run on the A100, the output shape is:
+
+- `torch.Size([2, 2048])`
+
+This means:
+
+- `2` output feature vectors, one per batch item
+- `2048` feature dimensions per item
+
 ## What The Inference Run Needs
 
 The simple inference flow expects both of these files:
@@ -83,40 +133,4 @@ If you want to let the Python loader auto-download the CLIP checkpoint:
 ```bash
 conda activate tfclip_a100
 python simple_inference.py --weights logs_mars/best_model.pth.tar --device cuda
-```
-
-## Troubleshooting
-
-### `ModuleNotFoundError: No module named 'ftfy'`
-
-Install the missing tokenizer dependency:
-
-```bash
-pip install ftfy regex
-```
-
-### PyTorch warns about NumPy 2.x
-
-Downgrade NumPy:
-
-```bash
-pip install "numpy<2"
-```
-
-### Job lands on CPU instead of GPU
-
-Check that:
-
-- the `#PBS` lines are at the top of `scripts/run_simple_inference.sh`
-- the job output shows `CUDA available: True`
-- the output includes `Using device: cuda`
-
-If your HPC requires an explicit GPU queue name, submit with that queue as required by your site.
-
-### `CLIP_PRETRAIN_PATH is not set`
-
-That message should no longer appear when `pretrained/ViT-B-16.pt` exists. Put the file there or set:
-
-```bash
-export CLIP_PRETRAIN_PATH=/full/path/to/ViT-B-16.pt
 ```
