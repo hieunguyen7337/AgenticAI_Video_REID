@@ -1,17 +1,37 @@
-# AgenticAI Video Re-ID Simple Inference
+﻿# AgenticAI Video Re-ID Inference-Only Package
 
-This repository contains a reusable inference package for the CLIP-based video re-identification model, plus a small smoke-test CLI wrapper.
+This repository is now an inference-only codebase centered on the self-contained [inference](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/inference) package.
 
-## Inference Package
+## Supported Runtime API
 
-The reusable inference API lives in [inference/core.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/inference/core.py).
+Import only from [inference](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/inference/__init__.py).
 
-Public functions:
+Supported public functions:
 
-- `load_checkpoint_state(model_weight_path, map_location)`
-- `infer_num_classes(checkpoint_state)`
-- `build_inference_model(model_weight_path, config_path, clip_pretrain_path=None, device=None, camera_num=6, view_num=1)`
+- `build_inference_model(model_weight_path, clip_pretrain_path=None, device=None, camera_num=6, view_num=1)`
 - `run_inference(model, video_tensor, cam_label=None, view_label=None, device=None)`
+- `load_checkpoint_state(model_weight_path, map_location="cpu")`
+- `infer_num_classes(checkpoint_state)`
+
+The package contains all code needed for inference:
+
+- embedded inference settings
+- CLIP `ViT-B-16` visual checkpoint loading
+- video re-ID model definition for the working inference path
+- checkpoint loading and execution helpers
+
+No runtime import from legacy `config`, `configs`, or `model` paths is required.
+
+## Model Scope
+
+This package supports only the currently working CLIP `ViT-B-16` video re-identification inference path.
+
+It does not support:
+
+- training
+- finetuning
+- RN50 or other backbone branches
+- text or prompt-training code paths
 
 ## Inference Input And Output
 
@@ -20,7 +40,6 @@ Public functions:
 Inputs:
 
 - `model_weight_path`: path to the trained re-ID checkpoint, for example `logs_mars/best_model.pth.tar`
-- `config_path`: path to the YAML config, by default `configs/vit_clipreid.yml`
 - `clip_pretrain_path`: optional path to the CLIP `ViT-B-16.pt` pretrained checkpoint
 - `device`: optional execution device, either `cuda` or `cpu`
 - `camera_num`: number of cameras for SIE embedding, default `6`
@@ -47,55 +66,31 @@ Tensor shape meaning:
 - `B`: batch size
 - `T`: sequence length
 - `C`: number of channels, expected `3` for RGB
-- `H`: image height, expected to already match the configured test size
-- `W`: image width, expected to already match the configured test size
+- `H`: image height, expected `256`
+- `W`: image width, expected `128`
 
 Input requirements:
 
 - `video_tensor` must already be preprocessed and resized before calling `run_inference(...)`
-- `video_tensor` must be rank 5
+- `video_tensor` must be rank `5`
 - `cam_label` and `view_label` must match the batch size when provided
 
 Output:
 
 - returns the raw feature tensor produced by the model in eval mode
-- for the current config with `TEST.NECK_FEAT: 'before'`, the output is the concatenated feature representation
+- the current inference output is the concatenated feature representation
+- with the working smoke test, the output shape is `torch.Size([2, 2048])`
 
-For the current working smoke test on the A100, the output shape is:
+## Required Runtime Files
 
-- `torch.Size([2, 2048])`
-
-This means:
-
-- `2` output feature vectors, one per batch item
-- `2048` feature dimensions per item
-
-## Smoke-Test CLI Wrapper
-
-The top-level script [simple_inference.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/simple_inference.py) is now a thin wrapper around the reusable inference package.
-
-It is intended as a smoke test only:
-
-- it parses CLI arguments
-- it builds the inference model
-- it creates a local dummy tensor for validation
-- it calls `run_inference(...)`
-- it prints the device and output feature shape
-
-The reusable package API does not create dummy input internally.
-
-## What The Inference Run Needs
-
-The inference flow expects both of these files:
+The inference flow expects these runtime artifacts:
 
 - `logs_mars/best_model.pth.tar`
 - `pretrained/ViT-B-16.pt` or another valid CLIP `ViT-B-16` checkpoint path
 
-`best_model.pth.tar` is the trained re-ID checkpoint. `ViT-B-16.pt` is the CLIP backbone pretrained weight.
+`best_model.pth.tar` is the trained video re-ID checkpoint. `ViT-B-16.pt` is the CLIP visual backbone checkpoint.
 
 ## Recommended Environment For A100
-
-Create a fresh environment instead of reusing the older `tfclip` environment.
 
 ```bash
 conda create -n tfclip_a100 python=3.10 -y
@@ -103,18 +98,16 @@ conda activate tfclip_a100
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
-If you prefer to install PyTorch first and the rest separately, use:
+If you prefer to install PyTorch first and the rest separately:
 
 ```bash
-pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cu121
 pip install --no-deps -r requirements.txt
 ```
 
-The `numpy<2` pin is intentional. PyTorch 2.1.2 in this setup should not be used with NumPy 2.x.
+The `numpy<2` pin is intentional because this environment path should not use NumPy 2.x with the chosen PyTorch build.
 
 ## Pretrained CLIP Weight
-
-The model config uses `ViT-B-16`, so inference needs the CLIP `ViT-B-16.pt` checkpoint.
 
 Official checkpoint URL:
 
@@ -127,54 +120,44 @@ mkdir -p pretrained
 wget -O pretrained/ViT-B-16.pt https://openaipublic.azureedge.net/clip/models/5806e77cd80f8b59890b7e101eabd078d9fb84e6937f9e85e4ecb61988df416f/ViT-B-16.pt
 ```
 
-If `pretrained/ViT-B-16.pt` exists, the queue script will use it automatically. If it does not exist and `CLIP_PRETRAIN_PATH` is not set, the Python loader will try to auto-download the checkpoint.
+If `pretrained/ViT-B-16.pt` exists, the queue script will use it automatically. If it does not exist and `CLIP_PRETRAIN_PATH` is not set, the package will try to auto-download the checkpoint.
 
-## Run On The HPC Queue
+## Smoke-Test Wrapper
 
-Submit the provided queue script:
+[simple_inference.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/simple_inference.py) is a thin smoke-test wrapper around the package.
 
-```bash
-qsub scripts/run_simple_inference.sh
-```
+It:
 
-The script is configured to:
+- parses CLI arguments
+- builds the inference model through `inference`
+- creates a local sample tensor
+- calls `run_inference(...)`
+- prints the device and output shape
 
-- request 1 GPU
-- default to the `tfclip_a100` conda environment
-- force inference to run on CUDA
-- prefer `pretrained/ViT-B-16.pt` when present
-- fall back to CLIP auto-download when no local pretrained weight path is set
+### Run Without Queue
 
-You can override the conda environment name if needed:
-
-```bash
-CONDA_ENV_NAME=my_env qsub scripts/run_simple_inference.sh
-```
-
-## Run Without Queue
-
-For a quick smoke-test run on a login node or any CPU-only session:
+On a login node or CPU-only session:
 
 ```bash
 conda activate tfclip_a100
 python simple_inference.py --weights logs_mars/best_model.pth.tar --clip-pretrain pretrained/ViT-B-16.pt --device cpu
 ```
 
-If you want to let the Python loader auto-download the CLIP checkpoint:
+Use `--device cuda` only inside a GPU-backed session.
+
+### Run On The HPC Queue
 
 ```bash
-conda activate tfclip_a100
-python simple_inference.py --weights logs_mars/best_model.pth.tar --device cpu
+qsub scripts/run_simple_inference.sh
 ```
 
-Use `--device cuda` only when you are inside a GPU-backed session. On many HPC systems, a normal login shell does not have CUDA access, so this command will fail even if the conda environment includes CUDA-enabled PyTorch.
+The queue script is configured to:
 
-Correct CUDA usage:
-
-- `qsub scripts/run_simple_inference.sh`
-- or run `python simple_inference.py ... --device cuda` from an interactive GPU allocation provided by your HPC
-
-If you run from a login node, the correct command is the CPU version above.
+- request 1 GPU
+- default to the `tfclip_a100` conda environment
+- force inference to run on CUDA
+- prefer `pretrained/ViT-B-16.pt` when present
+- fall back to CLIP auto-download when no local pretrained weight path is set
 
 ## Example Package Usage
 
@@ -185,7 +168,6 @@ from inference import build_inference_model, run_inference
 
 model, device = build_inference_model(
     model_weight_path="logs_mars/best_model.pth.tar",
-    config_path="configs/vit_clipreid.yml",
     clip_pretrain_path="pretrained/ViT-B-16.pt",
     device="cpu",
 )
@@ -204,5 +186,3 @@ features = run_inference(
 
 print(features.shape)
 ```
-
-If you want to exercise the package API on GPU, run the same code inside a queued or interactive GPU session and change `device="cpu"` to `device="cuda"`.

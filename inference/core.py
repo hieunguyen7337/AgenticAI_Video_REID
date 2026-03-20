@@ -1,10 +1,10 @@
-import torch
+﻿import torch
 
-from config import cfg
-from model.make_model_clipreid import make_model
+from .reid_model import VideoReIDInferenceModel
+from .settings import build_settings
 
 
-def load_checkpoint_state(model_weight_path, map_location):
+def load_checkpoint_state(model_weight_path, map_location="cpu"):
     checkpoint = torch.load(model_weight_path, map_location=map_location)
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         checkpoint = checkpoint["state_dict"]
@@ -32,24 +32,18 @@ def _resolve_device(device):
 
 def build_inference_model(
     model_weight_path,
-    config_path,
     clip_pretrain_path=None,
     device=None,
     camera_num=6,
     view_num=1,
 ):
-    cfg.merge_from_file(config_path)
-
     resolved_device = _resolve_device(device)
-    cfg.MODEL.DEVICE = resolved_device
-
-    if clip_pretrain_path:
-        cfg.MODEL.PRETRAIN_PATH = clip_pretrain_path
-
-    checkpoint_state = load_checkpoint_state(model_weight_path, map_location=resolved_device)
+    settings = build_settings(device=resolved_device, clip_pretrain_path=clip_pretrain_path)
+    checkpoint_state = load_checkpoint_state(model_weight_path, map_location="cpu")
     num_classes = infer_num_classes(checkpoint_state)
 
-    model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num=view_num)
+    model = VideoReIDInferenceModel(settings, camera_num=camera_num, view_num=view_num)
+    model.num_classes = num_classes
     model.load_param(model_weight_path, map_location=resolved_device)
     model.eval()
     model.to(resolved_device)
@@ -81,9 +75,4 @@ def run_inference(model, video_tensor, cam_label=None, view_label=None, device=N
         view_label = view_label.to(resolved_device)
 
     with torch.no_grad():
-        return model(
-            x=video_tensor,
-            get_image=False,
-            cam_label=cam_label,
-            view_label=view_label,
-        )
+        return model(video_tensor, cam_label=cam_label, view_label=view_label)

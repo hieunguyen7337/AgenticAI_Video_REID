@@ -1,18 +1,15 @@
-import argparse
+﻿import argparse
 import os
 
 import torch
 
-from config import cfg
-from inference import build_inference_model, infer_num_classes, load_checkpoint_state, run_inference
+from inference import DEFAULT_SETTINGS, build_inference_model, infer_num_classes, load_checkpoint_state, run_inference
 
 
-def create_smoke_test_input(config_path, device):
-    cfg.merge_from_file(config_path)
-
+def create_smoke_test_input(device):
     batch_size = 2
-    seq_len = cfg.INPUT.SEQ_LEN
-    height, width = cfg.INPUT.SIZE_TEST
+    seq_len = DEFAULT_SETTINGS.input.seq_len
+    height, width = DEFAULT_SETTINGS.input.size
 
     video_tensor = torch.randn(batch_size, seq_len, 3, height, width, device=device)
     cam_label = torch.tensor([0, 1], device=device)
@@ -20,19 +17,18 @@ def create_smoke_test_input(config_path, device):
     return video_tensor, cam_label, view_label
 
 
-def run_simple_inference(model_weight_path, config_path, clip_pretrain_path=None, device=None):
-    checkpoint_state = load_checkpoint_state(model_weight_path, map_location=device or "cpu")
+def run_simple_inference(model_weight_path, clip_pretrain_path=None, device=None):
+    checkpoint_state = load_checkpoint_state(model_weight_path, map_location="cpu")
     num_classes = infer_num_classes(checkpoint_state)
     print(f"Building inference model with num_classes={num_classes}")
 
     model, resolved_device = build_inference_model(
         model_weight_path=model_weight_path,
-        config_path=config_path,
         clip_pretrain_path=clip_pretrain_path,
         device=device,
     )
 
-    video_tensor, cam_label, view_label = create_smoke_test_input(config_path, resolved_device)
+    video_tensor, cam_label, view_label = create_smoke_test_input(resolved_device)
     features = run_inference(
         model,
         video_tensor=video_tensor,
@@ -51,7 +47,7 @@ def run_simple_inference(model_weight_path, config_path, clip_pretrain_path=None
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run a simple smoke-test inference pass using the reusable inference package."
+        description="Run a simple smoke-test inference pass using the self-contained inference package."
     )
     parser.add_argument(
         "--weights",
@@ -59,14 +55,9 @@ def parse_args():
         help="Path to the trained model weights.",
     )
     parser.add_argument(
-        "--config",
-        default="configs/vit_clipreid.yml",
-        help="Path to the experiment config file.",
-    )
-    parser.add_argument(
         "--clip-pretrain",
         default=os.environ.get("CLIP_PRETRAIN_PATH"),
-        help="Path to the CLIP pretrained checkpoint. Overrides config/env when set.",
+        help="Path to the CLIP pretrained checkpoint. Overrides CLIP_PRETRAIN_PATH when set.",
     )
     parser.add_argument(
         "--device",
@@ -81,7 +72,6 @@ if __name__ == "__main__":
     args = parse_args()
     run_simple_inference(
         model_weight_path=args.weights,
-        config_path=args.config,
         clip_pretrain_path=args.clip_pretrain,
         device=args.device,
     )
