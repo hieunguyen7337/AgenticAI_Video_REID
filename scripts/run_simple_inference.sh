@@ -1,5 +1,4 @@
 #!/bin/bash -l
-set -euo pipefail
 #PBS -N tfclip_inference
 #PBS -l walltime=02:00:00
 #PBS -l mem=16gb
@@ -7,6 +6,8 @@ set -euo pipefail
 #PBS -l ngpus=1
 #PBS -j eo
 #PBS -m abe
+
+set -euo pipefail
 
 echo '================================================'
 # Default to current directory if PBS_O_WORKDIR is not set
