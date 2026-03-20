@@ -1,61 +1,86 @@
+import argparse
+import os
+
 import torch
+
 from config import cfg
 from model.make_model_clipreid import make_model
 
-def run_simple_inference(model_weight_path):
-    """
-    Inputs:
-        x (torch.Tensor): A batch of video frames.
-            Expected shape: (B, T, C, H, W)
-            - B: Batch size.
-            - T: Temporal sequence length (number of frames per video, usually cfg.INPUT.SEQ_LEN like 8).
-            - C: Number of channels (3 for RGB).
-            - H: Image height (usually cfg.INPUT.SIZE_TEST[0] like 256).
-            - W: Image width (usually cfg.INPUT.SIZE_TEST[1] like 128).
-        get_image (bool): False for actual inference.
-        cam_label (torch.Tensor or None): Integer labels for cameras (used for SIE camera embedding)
-        view_label (torch.Tensor or None): Integer labels for views (used for SIE view embedding)
 
-    Outputs:
-        feat (torch.Tensor): The concatenated visual and temporal features used for evaluation.
-            If cfg.TEST.NECK_FEAT is 'after': Outputs (B, Dim_Image_BN + Dim_Proj_BN)
-            Otherwise: Outputs (B, Dim_Image + Dim_Proj + Dim_Class_Proj)
+def run_simple_inference(model_weight_path, config_path, clip_pretrain_path=None, device=None):
     """
+    Run a minimal forward pass with dummy video input to validate model loading.
+    """
+    cfg.merge_from_file(config_path)
 
-    # 1. Load default configurations (assume configs/vit_clipreid.yml is used)
-    # Automatically merging configs is optional here if default matches what we want
-    cfg.merge_from_file('configs/vit_clipreid.yml')
-    
-    # 2. Initialize the model 
-    # (assuming num_classes=100, camera_num=6, view_num=1 for dummy test)
-    # Make sure to handle the dataset parameters as needed based on MARS
+    resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if resolved_device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available in this environment.")
+    cfg.MODEL.DEVICE = resolved_device
+
+    if clip_pretrain_path:
+        cfg.MODEL.PRETRAIN_PATH = clip_pretrain_path
+
     model = make_model(cfg, num_class=100, camera_num=6, view_num=1)
-    
-    # 3. Load model weights
-    model.load_param(model_weight_path)
-    
-    # Ensure model is in eval mode (this disables dropout, uses moving averages for BN, and changes the return structure)
+    model.load_param(model_weight_path, map_location=resolved_device)
     model.eval()
-    model.to("cuda")
+    model.to(resolved_device)
 
-    # 4. Create dummy input data matching what the model expects
-    B, T, C, H, W = 2, cfg.INPUT.SEQ_LEN, 3, cfg.INPUT.SIZE_TEST[0], cfg.INPUT.SIZE_TEST[1]
-    
-    # x shape matches: (Batch, Frames, Channels, Height, Width)
-    dummy_input = torch.randn(B, T, C, H, W).cuda() 
-    
-    # Optional embeddings for Camera and View (Set to None if SIE_CAMERA=False)
-    cam_label = torch.tensor([0, 1]).cuda() 
-    view_label = torch.tensor([0, 0]).cuda()
+    batch_size = 2
+    seq_len = cfg.INPUT.SEQ_LEN
+    height, width = cfg.INPUT.SIZE_TEST
 
-    # 5. Run Inference
+    dummy_input = torch.randn(batch_size, seq_len, 3, height, width, device=resolved_device)
+    cam_label = torch.tensor([0, 1], device=resolved_device)
+    view_label = torch.tensor([0, 0], device=resolved_device)
+
     with torch.no_grad():
-        # During model.eval(), the model returns concatenated features
-        features = model(x=dummy_input, get_image=False, cam_label=cam_label, view_label=view_label)
+        features = model(
+            x=dummy_input,
+            get_image=False,
+            cam_label=cam_label,
+            view_label=view_label,
+        )
 
+    if resolved_device == "cuda":
+        print(f"Using device: {resolved_device} ({torch.cuda.get_device_name(0)})")
+    else:
+        print(f"Using device: {resolved_device}")
     print(f"Inference complete. Output feature shape: {features.shape}")
     return features
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run a simple dummy inference pass.")
+    parser.add_argument(
+        "--weights",
+        default="logs_mars/best_model.pth.tar",
+        help="Path to the trained model weights.",
+    )
+    parser.add_argument(
+        "--config",
+        default="configs/vit_clipreid.yml",
+        help="Path to the experiment config file.",
+    )
+    parser.add_argument(
+        "--clip-pretrain",
+        default=os.environ.get("CLIP_PRETRAIN_PATH"),
+        help="Path to the CLIP pretrained checkpoint. Overrides config/env when set.",
+    )
+    parser.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default=None,
+        help="Force inference to run on CPU or CUDA. Defaults to CUDA when available.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    weight_path = "logs_mars/best_model.pth.tar" 
-    run_simple_inference(weight_path)
+    args = parse_args()
+    run_simple_inference(
+        model_weight_path=args.weights,
+        config_path=args.config,
+        clip_pretrain_path=args.clip_pretrain,
+        device=args.device,
+    )

@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -34,11 +35,16 @@ def weights_init_classifier(m):
             nn.init.constant_(m.bias, 0.0)
 
 from .clip import clip
-def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_size):
+def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_size, pretrained_path=None):
     url = clip._MODELS[backbone_name]
     # model_path = clip._download(url)
-    # model_path = clip._download(url)  # 不用下载,用下载好的
-    model_path = '/18640539002/dataset_cc/Pretrain-models/ViT-B-16.pt'  # 不用下载,用下载好的
+    model_path = pretrained_path or os.environ.get("CLIP_PRETRAIN_PATH")
+    if not model_path:
+        model_path = clip._download(url)
+    if not os.path.isfile(model_path):
+        raise FileNotFoundError(
+            "CLIP pretrained weights were not found. Set cfg.MODEL.PRETRAIN_PATH or the CLIP_PRETRAIN_PATH environment variable to a valid checkpoint path."
+        )
     try:
         # loading JIT archive
         model = torch.jit.load(model_path, map_location="cpu").eval()
@@ -164,8 +170,8 @@ class build_transformer(nn.Module):
         self.h_resolution = int((cfg.INPUT.SIZE_TRAIN[0]-16)//cfg.MODEL.STRIDE_SIZE[0] + 1)
         self.w_resolution = int((cfg.INPUT.SIZE_TRAIN[1]-16)//cfg.MODEL.STRIDE_SIZE[1] + 1)
         self.vision_stride_size = cfg.MODEL.STRIDE_SIZE[0]
-        clip_model = load_clip_to_cpu(self.model_name, self.h_resolution, self.w_resolution, self.vision_stride_size)
-        clip_model.to("cuda")
+        clip_model = load_clip_to_cpu(self.model_name, self.h_resolution, self.w_resolution, self.vision_stride_size, pretrained_path=cfg.MODEL.PRETRAIN_PATH)
+        clip_model.to(cfg.MODEL.DEVICE)
 
         self.image_encoder = clip_model.visual
 
@@ -318,8 +324,10 @@ class build_transformer(nn.Module):
                 # return f_tp
 
 
-    def load_param(self, trained_path):
-        param_dict = torch.load(trained_path)
+    def load_param(self, trained_path, map_location=None):
+        param_dict = torch.load(trained_path, map_location=map_location)
+        if isinstance(param_dict, dict) and 'state_dict' in param_dict:
+            param_dict = param_dict['state_dict']
         for i in param_dict:
             self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
         print('Loading pretrained model from {}'.format(trained_path))
