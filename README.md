@@ -153,19 +153,28 @@ CONDA_ENV_NAME=my_env qsub scripts/run_simple_inference.sh
 
 ## Run Without Queue
 
-For a quick smoke-test run:
+For a quick smoke-test run on a login node or any CPU-only session:
 
 ```bash
 conda activate tfclip_a100
-python simple_inference.py --weights logs_mars/best_model.pth.tar --clip-pretrain pretrained/ViT-B-16.pt --device cuda
+python simple_inference.py --weights logs_mars/best_model.pth.tar --clip-pretrain pretrained/ViT-B-16.pt --device cpu
 ```
 
 If you want to let the Python loader auto-download the CLIP checkpoint:
 
 ```bash
 conda activate tfclip_a100
-python simple_inference.py --weights logs_mars/best_model.pth.tar --device cuda
+python simple_inference.py --weights logs_mars/best_model.pth.tar --device cpu
 ```
+
+Use `--device cuda` only when you are inside a GPU-backed session. On many HPC systems, a normal login shell does not have CUDA access, so this command will fail even if the conda environment includes CUDA-enabled PyTorch.
+
+Correct CUDA usage:
+
+- `qsub scripts/run_simple_inference.sh`
+- or run `python simple_inference.py ... --device cuda` from an interactive GPU allocation provided by your HPC
+
+If you run from a login node, the correct command is the CPU version above.
 
 ## Example Package Usage
 
@@ -178,7 +187,7 @@ model, device = build_inference_model(
     model_weight_path="logs_mars/best_model.pth.tar",
     config_path="configs/vit_clipreid.yml",
     clip_pretrain_path="pretrained/ViT-B-16.pt",
-    device="cuda",
+    device="cpu",
 )
 
 video_tensor = torch.randn(2, 8, 3, 256, 128)
@@ -195,3 +204,5 @@ features = run_inference(
 
 print(features.shape)
 ```
+
+If you want to exercise the package API on GPU, run the same code inside a queued or interactive GPU session and change `device="cpu"` to `device="cuda"`.
