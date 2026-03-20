@@ -70,6 +70,7 @@ echo '=========='
 inference_script="simple_inference.py"
 model_weight="logs_mars/best_model.pth.tar"
 clip_pretrain_path="${CLIP_PRETRAIN_PATH:-}"
+default_clip_pretrain="pretrained/ViT-B-16.pt"
 
 # Ensure the inference script exists
 if [ ! -s "${inference_script}" ]; then
@@ -83,13 +84,11 @@ if [ ! -s "${model_weight}" ]; then
   exit 1
 fi
 
-if [ -z "${clip_pretrain_path}" ]; then
-  echo "ERROR: CLIP_PRETRAIN_PATH is not set."
-  echo "Set it to the ViT-B-16.pt checkpoint before running inference."
-  exit 1
+if [ -z "${clip_pretrain_path}" ] && [ -s "${default_clip_pretrain}" ]; then
+  clip_pretrain_path="${default_clip_pretrain}"
 fi
 
-if [ ! -s "${clip_pretrain_path}" ]; then
+if [ -n "${clip_pretrain_path}" ] && [ ! -s "${clip_pretrain_path}" ]; then
   echo "ERROR: CLIP pretrained checkpoint was not found at ${clip_pretrain_path}."
   exit 1
 fi
@@ -105,7 +104,14 @@ echo 'Running simple inference'
 echo '========================='
 date
 
-python "${inference_script}" --weights "${model_weight}" --clip-pretrain "${clip_pretrain_path}" --device cuda
+if [ -n "${clip_pretrain_path}" ]; then
+  echo "Using CLIP pretrained checkpoint: ${clip_pretrain_path}"
+  python "${inference_script}" --weights "${model_weight}" --clip-pretrain "${clip_pretrain_path}" --device cuda
+else
+  echo "CLIP_PRETRAIN_PATH not set and ${default_clip_pretrain} not found."
+  echo "Falling back to automatic CLIP weight download."
+  python "${inference_script}" --weights "${model_weight}" --device cuda
+fi
 
 echo '========================='
 echo 'Done.'
