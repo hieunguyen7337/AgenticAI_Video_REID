@@ -265,8 +265,16 @@ class build_transformer(nn.Module):
                 cv_embed = self.sie_coe * self.cv_embed[view_label]
             else:
                 cv_embed = None
-            cv_embed = cv_embed.repeat((1, B)).view(B, -1)  # torch.Size([64, 768])
-            cv_embed = cv_embed.repeat((1, T)).view(B * T, -1)  # torch.Size([64, 768])
+            if cv_embed is not None:
+                if cv_embed.dim() == 1:
+                    cv_embed = cv_embed.unsqueeze(0).expand(B, -1)
+                elif cv_embed.size(0) == 1 and B > 1:
+                    cv_embed = cv_embed.expand(B, -1)
+                elif cv_embed.size(0) != B:
+                    raise RuntimeError(
+                        f"Expected cv_embed batch dimension {B}, but got {cv_embed.size(0)}"
+                    )
+                cv_embed = cv_embed.repeat_interleave(T, dim=0)
             # cv_embed = cv_embed.repeat((1, T)).view(B * T, -1)  # torch.Size([64, 768])
             # torch.Size([64, 129, 768])  torch.Size([64, 129, 768])  torch.Size([64, 129, 512])
             image_features, image_features_proj_raw = self.image_encoder(x, cv_embed)
