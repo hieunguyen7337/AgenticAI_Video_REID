@@ -7,6 +7,25 @@ from config import cfg
 from model.make_model_clipreid import make_model
 
 
+def load_checkpoint_state(model_weight_path, map_location):
+    checkpoint = torch.load(model_weight_path, map_location=map_location)
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        checkpoint = checkpoint["state_dict"]
+    return checkpoint
+
+
+def infer_num_classes(checkpoint_state):
+    for key in (
+        "module.classifier2.weight",
+        "classifier2.weight",
+        "module.classifier_proj.weight",
+        "classifier_proj.weight",
+    ):
+        if key in checkpoint_state:
+            return checkpoint_state[key].shape[0]
+    return 100
+
+
 def run_simple_inference(model_weight_path, config_path, clip_pretrain_path=None, device=None):
     """
     Run a minimal forward pass with dummy video input to validate model loading.
@@ -21,7 +40,11 @@ def run_simple_inference(model_weight_path, config_path, clip_pretrain_path=None
     if clip_pretrain_path:
         cfg.MODEL.PRETRAIN_PATH = clip_pretrain_path
 
-    model = make_model(cfg, num_class=100, camera_num=6, view_num=1)
+    checkpoint_state = load_checkpoint_state(model_weight_path, map_location=resolved_device)
+    num_classes = infer_num_classes(checkpoint_state)
+    print(f"Building inference model with num_classes={num_classes}")
+
+    model = make_model(cfg, num_class=num_classes, camera_num=6, view_num=1)
     model.load_param(model_weight_path, map_location=resolved_device)
     model.eval()
     model.to(resolved_device)

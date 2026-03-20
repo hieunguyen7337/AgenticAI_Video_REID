@@ -328,9 +328,24 @@ class build_transformer(nn.Module):
         param_dict = torch.load(trained_path, map_location=map_location)
         if isinstance(param_dict, dict) and 'state_dict' in param_dict:
             param_dict = param_dict['state_dict']
+        model_state = self.state_dict()
+        skipped = []
         for i in param_dict:
-            self.state_dict()[i.replace('module.', '')].copy_(param_dict[i])
+            key = i.replace('module.', '')
+            if key not in model_state:
+                skipped.append(f"{key} (missing in current model)")
+                continue
+            if model_state[key].shape != param_dict[i].shape:
+                skipped.append(
+                    f"{key} (checkpoint {tuple(param_dict[i].shape)} != model {tuple(model_state[key].shape)})"
+                )
+                continue
+            model_state[key].copy_(param_dict[i])
         print('Loading pretrained model from {}'.format(trained_path))
+        if skipped:
+            print('Skipped incompatible parameters:')
+            for key in skipped:
+                print(f'  - {key}')
 
     def load_param_finetune(self, model_path):
         param_dict = torch.load(model_path)
