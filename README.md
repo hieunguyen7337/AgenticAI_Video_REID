@@ -1,49 +1,67 @@
 # AgenticAI Video Re-ID Simple Inference
 
-This repository contains a minimal inference entrypoint for the CLIP-based video re-identification model in this project.
+This repository contains a reusable inference package for the CLIP-based video re-identification model, plus a small smoke-test CLI wrapper.
 
-## Inference Function
+## Inference Package
 
-The main entrypoint is `run_simple_inference` in [simple_inference.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/simple_inference.py).
+The reusable inference API lives in [inference/core.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/inference/core.py).
 
-Function arguments:
+Public functions:
+
+- `load_checkpoint_state(model_weight_path, map_location)`
+- `infer_num_classes(checkpoint_state)`
+- `build_inference_model(model_weight_path, config_path, clip_pretrain_path=None, device=None, camera_num=6, view_num=1)`
+- `run_inference(model, video_tensor, cam_label=None, view_label=None, device=None)`
+
+## Inference Input And Output
+
+### `build_inference_model(...)`
+
+Inputs:
 
 - `model_weight_path`: path to the trained re-ID checkpoint, for example `logs_mars/best_model.pth.tar`
 - `config_path`: path to the YAML config, by default `configs/vit_clipreid.yml`
 - `clip_pretrain_path`: optional path to the CLIP `ViT-B-16.pt` pretrained checkpoint
 - `device`: optional execution device, either `cuda` or `cpu`
-
-Internal model input:
-
-- The function creates a dummy video tensor with shape `(B, T, C, H, W)`
-- `B`: batch size
-- `T`: sequence length from `cfg.INPUT.SEQ_LEN`
-- `C`: 3 RGB channels
-- `H`: test image height from `cfg.INPUT.SIZE_TEST[0]`
-- `W`: test image width from `cfg.INPUT.SIZE_TEST[1]`
-
-For the default config in this repo, the dummy inference input is:
-
-- `B=2`
-- `T=8`
-- `C=3`
-- `H=256`
-- `W=128`
-
-Additional inference inputs:
-
-- `cam_label`: camera IDs for each item in the batch, shape `(B,)`
-- `view_label`: view IDs for each item in the batch, shape `(B,)`
+- `camera_num`: number of cameras for SIE embedding, default `6`
+- `view_num`: number of views for SIE embedding, default `1`
 
 Output:
 
-- The function returns a feature tensor for each input tracklet
-- In evaluation mode with `TEST.NECK_FEAT: 'before'`, the output is the concatenation of:
-- image feature
-- projected image feature
-- temporal feature
+- returns `(model, resolved_device)`
+- `model` is a ready-to-run eval-mode model with checkpoint weights loaded
+- `resolved_device` is the device string actually used for inference
 
-For the current working run on the A100, the output shape is:
+### `run_inference(...)`
+
+Inputs:
+
+- `model`: the model returned by `build_inference_model(...)`
+- `video_tensor`: a prepared tensor with shape `(B, T, C, H, W)`
+- `cam_label`: optional integer tensor with shape `(B,)`
+- `view_label`: optional integer tensor with shape `(B,)`
+- `device`: optional execution device override
+
+Tensor shape meaning:
+
+- `B`: batch size
+- `T`: sequence length
+- `C`: number of channels, expected `3` for RGB
+- `H`: image height, expected to already match the configured test size
+- `W`: image width, expected to already match the configured test size
+
+Input requirements:
+
+- `video_tensor` must already be preprocessed and resized before calling `run_inference(...)`
+- `video_tensor` must be rank 5
+- `cam_label` and `view_label` must match the batch size when provided
+
+Output:
+
+- returns the raw feature tensor produced by the model in eval mode
+- for the current config with `TEST.NECK_FEAT: 'before'`, the output is the concatenated feature representation
+
+For the current working smoke test on the A100, the output shape is:
 
 - `torch.Size([2, 2048])`
 
@@ -52,9 +70,23 @@ This means:
 - `2` output feature vectors, one per batch item
 - `2048` feature dimensions per item
 
+## Smoke-Test CLI Wrapper
+
+The top-level script [simple_inference.py](/F:/document/Agentic%20AI_video_re_identification/AgenticAI_Video_REID/simple_inference.py) is now a thin wrapper around the reusable inference package.
+
+It is intended as a smoke test only:
+
+- it parses CLI arguments
+- it builds the inference model
+- it creates a local dummy tensor for validation
+- it calls `run_inference(...)`
+- it prints the device and output feature shape
+
+The reusable package API does not create dummy input internally.
+
 ## What The Inference Run Needs
 
-The simple inference flow expects both of these files:
+The inference flow expects both of these files:
 
 - `logs_mars/best_model.pth.tar`
 - `pretrained/ViT-B-16.pt` or another valid CLIP `ViT-B-16` checkpoint path
@@ -121,7 +153,7 @@ CONDA_ENV_NAME=my_env qsub scripts/run_simple_inference.sh
 
 ## Run Without Queue
 
-For a quick manual run:
+For a quick smoke-test run:
 
 ```bash
 conda activate tfclip_a100
@@ -133,4 +165,33 @@ If you want to let the Python loader auto-download the CLIP checkpoint:
 ```bash
 conda activate tfclip_a100
 python simple_inference.py --weights logs_mars/best_model.pth.tar --device cuda
+```
+
+## Example Package Usage
+
+```python
+import torch
+
+from inference import build_inference_model, run_inference
+
+model, device = build_inference_model(
+    model_weight_path="logs_mars/best_model.pth.tar",
+    config_path="configs/vit_clipreid.yml",
+    clip_pretrain_path="pretrained/ViT-B-16.pt",
+    device="cuda",
+)
+
+video_tensor = torch.randn(2, 8, 3, 256, 128)
+cam_label = torch.tensor([0, 1])
+view_label = torch.tensor([0, 0])
+
+features = run_inference(
+    model,
+    video_tensor=video_tensor,
+    cam_label=cam_label,
+    view_label=view_label,
+    device=device,
+)
+
+print(features.shape)
 ```
