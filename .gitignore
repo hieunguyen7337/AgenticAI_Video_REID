@@ -207,6 +207,6 @@ marimo/_lsp/
 __marimo__/
 
 # Local model artifacts
-logs_mars/
-pretrained/
 test_data/
+promptpar_pa100k/weights
+tfclip_inference/weights
