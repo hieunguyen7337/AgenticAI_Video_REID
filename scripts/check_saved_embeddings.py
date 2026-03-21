@@ -10,7 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import torch
 
-from tfclip_inference import euclidean_distance
+from tfclip_inference import cosine_similarity
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,20 +62,20 @@ def main() -> None:
         print(f"Min / Max: {vector.min().item():.6f} / {vector.max().item():.6f}")
         print(f"Preview ({args.preview} values): {vector[:args.preview].tolist()}")
 
-    distances = euclidean_distance(embeddings, embeddings)
+    similarities = cosine_similarity(embeddings, embeddings)
     print("-" * 60)
-    print("Pairwise Euclidean distance matrix:")
+    print("Pairwise cosine similarity matrix:")
     for row_index, row_name in enumerate(tracklets):
-        row_values = " ".join(f"{value:.6f}" for value in distances[row_index])
+        row_values = " ".join(f"{value:.6f}" for value in similarities[row_index])
         print(f"{row_name}: {row_values}")
 
     print("-" * 60)
-    print("Pairwise Euclidean distances:")
+    print("Pairwise cosine similarities:")
     for left_index in range(len(tracklets)):
         for right_index in range(left_index + 1, len(tracklets)):
             print(
                 f"{tracklets[left_index]} <-> {tracklets[right_index]}: "
-                f"{distances[left_index, right_index]:.6f}"
+                f"{similarities[left_index, right_index]:.6f}"
             )
 
 
