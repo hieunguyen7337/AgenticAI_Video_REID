@@ -209,3 +209,4 @@ __marimo__/
 # Local model artifacts
 logs_mars/
 pretrained/
+test_data/
