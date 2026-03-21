@@ -15,11 +15,27 @@ echo "Submission directory = ${WORKSPACE}"
 echo '================================================'
 cd "${WORKSPACE}"
 
-if [[ $(basename "$PWD") == "script" ]]; then
+if [[ $(basename "$PWD") == "scripts" ]]; then
     cd ..
 fi
 
 echo "Working directory is now: $(pwd)"
+
+echo '=========='
+echo 'Fixed job configuration'
+echo '=========='
+PYTHON_SCRIPT="main.py"
+CONDA_ENV_NAME="tfclip_a100"
+CHECKPOINT_PATH="logs_mars/best_model.pth.tar"
+TRACKLET_INPUT="data/gallery/mbc5vA"
+BACKBONE="ViT-B-16"
+SEQ_LEN="8"
+HEIGHT="256"
+WIDTH="128"
+CAM_ID="0"
+VIEW_ID="0"
+GPU_INDEX="0"
+SELF_TEST="0"
 
 echo '=========='
 echo 'Load CUDA & cuDNN modules'
@@ -31,7 +47,6 @@ echo '=========='
 echo 'Activate conda env'
 echo '=========='
 source ~/miniconda3/etc/profile.d/conda.sh
-CONDA_ENV_NAME="${CONDA_ENV_NAME:-tfclip_a100}"
 echo "Activating conda env: ${CONDA_ENV_NAME}"
 conda activate "${CONDA_ENV_NAME}"
 
@@ -58,17 +73,6 @@ echo '=========='
 echo 'Prepare inference arguments'
 echo '=========='
 
-PYTHON_SCRIPT="main.py"
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-logs_mars/best_model.pth.tar}"
-TRACKLET_INPUT="${TRACKLET_INPUT:-}"
-BACKBONE="${BACKBONE:-ViT-B-16}"
-SEQ_LEN="${SEQ_LEN:-8}"
-HEIGHT="${HEIGHT:-256}"
-WIDTH="${WIDTH:-128}"
-CAM_ID="${CAM_ID:-0}"
-VIEW_ID="${VIEW_ID:-0}"
-GPU_INDEX="${1:-0}"
-
 if [ ! -s "${PYTHON_SCRIPT}" ]; then
   echo "ERROR: ${PYTHON_SCRIPT} was not found in $(pwd)."
   exit 1
@@ -76,44 +80,55 @@ fi
 
 if [ ! -s "${CHECKPOINT_PATH}" ]; then
   echo "ERROR: checkpoint not found at ${CHECKPOINT_PATH}."
-  echo "Place the TF-CLIP checkpoint there or export CHECKPOINT_PATH=/path/to/best_model.pth.tar"
+  echo "Place the TF-CLIP checkpoint at the fixed path above or edit the script config block."
   exit 1
 fi
 
-if [ -z "${TRACKLET_INPUT}" ]; then
-  echo "ERROR: TRACKLET_INPUT is not set."
-  echo "Set TRACKLET_INPUT to either a directory of ordered frames or one image path."
-  echo "Example:"
-  echo "  qsub -v TRACKLET_INPUT=data/query_tracklet script/run_main_inference_a100.sh"
-  exit 1
-fi
-
-if [ ! -e "${TRACKLET_INPUT}" ]; then
-  echo "ERROR: TRACKLET_INPUT does not exist: ${TRACKLET_INPUT}"
-  exit 1
+if [ "${SELF_TEST}" != "1" ]; then
+  if [ ! -e "${TRACKLET_INPUT}" ]; then
+    echo "ERROR: TRACKLET_INPUT does not exist: ${TRACKLET_INPUT}"
+    echo "Edit the fixed TRACKLET_INPUT value near the top of this script."
+    exit 1
+  fi
 fi
 
 export CUDA_VISIBLE_DEVICES="${GPU_INDEX}"
 
 echo "Using GPU index: ${CUDA_VISIBLE_DEVICES}"
 echo "Checkpoint: ${CHECKPOINT_PATH}"
-echo "Tracklet input: ${TRACKLET_INPUT}"
+echo "Self test: ${SELF_TEST}"
+if [ "${SELF_TEST}" != "1" ]; then
+  echo "Tracklet input: ${TRACKLET_INPUT}"
+fi
 
 echo '========================='
 echo 'Running TF-CLIP main.py'
 echo '========================='
 date
 
-python "${PYTHON_SCRIPT}" \
-  --checkpoint "${CHECKPOINT_PATH}" \
-  --device cuda \
-  --backbone "${BACKBONE}" \
-  --seq-len "${SEQ_LEN}" \
-  --height "${HEIGHT}" \
-  --width "${WIDTH}" \
-  --cam-id "${CAM_ID}" \
-  --view-id "${VIEW_ID}" \
-  "${TRACKLET_INPUT}"
+if [ "${SELF_TEST}" = "1" ]; then
+  python "${PYTHON_SCRIPT}" \
+    --self-test \
+    --checkpoint "${CHECKPOINT_PATH}" \
+    --device cuda \
+    --backbone "${BACKBONE}" \
+    --seq-len "${SEQ_LEN}" \
+    --height "${HEIGHT}" \
+    --width "${WIDTH}" \
+    --cam-id "${CAM_ID}" \
+    --view-id "${VIEW_ID}"
+else
+  python "${PYTHON_SCRIPT}" \
+    --checkpoint "${CHECKPOINT_PATH}" \
+    --device cuda \
+    --backbone "${BACKBONE}" \
+    --seq-len "${SEQ_LEN}" \
+    --height "${HEIGHT}" \
+    --width "${WIDTH}" \
+    --cam-id "${CAM_ID}" \
+    --view-id "${VIEW_ID}" \
+    "${TRACKLET_INPUT}"
+fi
 
 echo '========================='
 echo 'Done.'
