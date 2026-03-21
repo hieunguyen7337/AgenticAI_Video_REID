@@ -5,6 +5,8 @@ from pathlib import Path
 
 import torch
 
+from tfclip_inference import euclidean_distance
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inspect saved TF-CLIP embedding files.")
@@ -54,6 +56,22 @@ def main() -> None:
         print(f"L2 norm: {vector.norm(p=2).item():.6f}")
         print(f"Min / Max: {vector.min().item():.6f} / {vector.max().item():.6f}")
         print(f"Preview ({args.preview} values): {vector[:args.preview].tolist()}")
+
+    distances = euclidean_distance(embeddings, embeddings)
+    print("-" * 60)
+    print("Pairwise Euclidean distance matrix:")
+    for row_index, row_name in enumerate(tracklets):
+        row_values = " ".join(f"{value:.6f}" for value in distances[row_index])
+        print(f"{row_name}: {row_values}")
+
+    print("-" * 60)
+    print("Pairwise Euclidean distances:")
+    for left_index in range(len(tracklets)):
+        for right_index in range(left_index + 1, len(tracklets)):
+            print(
+                f"{tracklets[left_index]} <-> {tracklets[right_index]}: "
+                f"{distances[left_index, right_index]:.6f}"
+            )
 
 
 if __name__ == "__main__":
