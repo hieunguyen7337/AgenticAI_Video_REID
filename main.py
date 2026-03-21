@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Sequence
 
@@ -48,6 +49,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cam-id", type=int, default=0, help="Camera id for SIE-enabled checkpoints.")
     parser.add_argument("--view-id", type=int, default=0, help="View id for SIE-enabled checkpoints.")
     parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional output file. Single-tracklet mode saves one embedding; multi-tracklet mode saves all embeddings.",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run inference on a synthetic in-memory tracklet instead of reading image files.",
@@ -83,6 +90,52 @@ def collect_tracklet(inputs: Sequence[str]) -> list[str]:
     return [str(path) for path in frame_paths]
 
 
+def collect_frames_from_directory(directory: Path) -> list[str]:
+    frames = sorted(path for path in directory.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+    if not frames:
+        raise ValueError(f"No image frames found in directory: {directory}")
+    return [str(path) for path in frames]
+
+
+def collect_tracklet_directories(directory: Path) -> list[Path]:
+    tracklet_dirs = sorted(path for path in directory.iterdir() if path.is_dir())
+    if not tracklet_dirs:
+        raise ValueError(f"No tracklet subdirectories found in directory: {directory}")
+    return tracklet_dirs
+
+
+def save_single_embedding(output_path: Path, embedding: torch.Tensor, source: str) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "source": source,
+        "embedding": embedding.cpu(),
+    }
+    if output_path.suffix.lower() == ".json":
+        output_path.write_text(json.dumps({
+            "source": source,
+            "shape": list(embedding.shape),
+            "embedding": embedding.squeeze(0).tolist(),
+        }, indent=2))
+        return
+    torch.save(payload, output_path)
+
+
+def save_batch_embeddings(output_path: Path, names: Sequence[str], embeddings: torch.Tensor) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "tracklets": list(names),
+        "embeddings": embeddings.cpu(),
+    }
+    if output_path.suffix.lower() == ".json":
+        output_path.write_text(json.dumps({
+            "tracklets": list(names),
+            "shape": list(embeddings.shape),
+            "embeddings": embeddings.tolist(),
+        }, indent=2))
+        return
+    torch.save(payload, output_path)
+
+
 def build_synthetic_tracklet(num_frames: int) -> list[Image.Image]:
     frames: list[Image.Image] = []
     for frame_idx in range(num_frames):
@@ -115,21 +168,74 @@ def main() -> None:
     if args.self_test:
         tracklet = build_synthetic_tracklet(max(args.seq_len, 8))
         source_description = f"synthetic in-memory tracklet with {len(tracklet)} frames"
+        embedding = inferencer.embed_tracklet(tracklet, cam_id=args.cam_id, view_id=args.view_id)
+        flattened = embedding.squeeze(0)
+        print(f"Checkpoint: {checkpoint_path}")
+        print(f"Device: {device}")
+        print(f"Source: {source_description}")
+        print(f"Embedding shape: {tuple(embedding.shape)}")
+        print(f"Embedding dtype: {embedding.dtype}")
+        print(f"Embedding L2 norm: {flattened.norm(p=2).item():.6f}")
+        print("Embedding preview (first 10 values):")
+        print(flattened[:10].tolist())
+        if args.output is not None:
+            output_path = args.output.resolve()
+            save_single_embedding(output_path, embedding, source_description)
+            print(f"Saved embedding to: {output_path}")
+    elif len(args.inputs) == 1 and Path(args.inputs[0]).is_dir():
+        input_dir = Path(args.inputs[0])
+        image_files = [path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS]
+        if image_files:
+            tracklet = collect_frames_from_directory(input_dir)
+            source_description = f"{len(tracklet)} frame(s) from input"
+            embedding = inferencer.embed_tracklet(tracklet, cam_id=args.cam_id, view_id=args.view_id)
+            flattened = embedding.squeeze(0)
+            print(f"Checkpoint: {checkpoint_path}")
+            print(f"Device: {device}")
+            print(f"Source: {source_description}")
+            print(f"Embedding shape: {tuple(embedding.shape)}")
+            print(f"Embedding dtype: {embedding.dtype}")
+            print(f"Embedding L2 norm: {flattened.norm(p=2).item():.6f}")
+            print("Embedding preview (first 10 values):")
+            print(flattened[:10].tolist())
+            if args.output is not None:
+                output_path = args.output.resolve()
+                save_single_embedding(output_path, embedding, str(input_dir.resolve()))
+                print(f"Saved embedding to: {output_path}")
+        else:
+            tracklet_dirs = collect_tracklet_directories(input_dir)
+            tracklet_names = [path.name for path in tracklet_dirs]
+            tracklets = [collect_frames_from_directory(path) for path in tracklet_dirs]
+            embeddings = inferencer.embed_tracklets(
+                tracklets,
+                cam_ids=[args.cam_id] * len(tracklets),
+                view_ids=[args.view_id] * len(tracklets),
+            )
+            output_path = (args.output or Path("outputs") / f"{input_dir.name}_embeddings.pt").resolve()
+            save_batch_embeddings(output_path, tracklet_names, embeddings)
+            print(f"Checkpoint: {checkpoint_path}")
+            print(f"Device: {device}")
+            print(f"Source: {input_dir.resolve()}")
+            print(f"Embedded tracklets: {tracklet_names}")
+            print(f"Batch embedding shape: {tuple(embeddings.shape)}")
+            print(f"Saved embeddings to: {output_path}")
     else:
         tracklet = collect_tracklet(args.inputs)
         source_description = f"{len(tracklet)} frame(s) from input"
-
-    embedding = inferencer.embed_tracklet(tracklet, cam_id=args.cam_id, view_id=args.view_id)
-    flattened = embedding.squeeze(0)
-
-    print(f"Checkpoint: {checkpoint_path}")
-    print(f"Device: {device}")
-    print(f"Source: {source_description}")
-    print(f"Embedding shape: {tuple(embedding.shape)}")
-    print(f"Embedding dtype: {embedding.dtype}")
-    print(f"Embedding L2 norm: {flattened.norm(p=2).item():.6f}")
-    print("Embedding preview (first 10 values):")
-    print(flattened[:10].tolist())
+        embedding = inferencer.embed_tracklet(tracklet, cam_id=args.cam_id, view_id=args.view_id)
+        flattened = embedding.squeeze(0)
+        print(f"Checkpoint: {checkpoint_path}")
+        print(f"Device: {device}")
+        print(f"Source: {source_description}")
+        print(f"Embedding shape: {tuple(embedding.shape)}")
+        print(f"Embedding dtype: {embedding.dtype}")
+        print(f"Embedding L2 norm: {flattened.norm(p=2).item():.6f}")
+        print("Embedding preview (first 10 values):")
+        print(flattened[:10].tolist())
+        if args.output is not None:
+            output_path = args.output.resolve()
+            save_single_embedding(output_path, embedding, source_description)
+            print(f"Saved embedding to: {output_path}")
 
     if inferencer.load_result.ignored_keys:
         print("Ignored training-only checkpoint keys:")

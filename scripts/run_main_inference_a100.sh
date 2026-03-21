@@ -27,7 +27,8 @@ echo '=========='
 PYTHON_SCRIPT="main.py"
 CONDA_ENV_NAME="tfclip_a100"
 CHECKPOINT_PATH="logs_mars/best_model.pth.tar"
-TRACKLET_INPUT="data/gallery/mbc5vA"
+TRACKLET_INPUT="test_data"
+OUTPUT_PATH="outputs/test_data_embeddings.pt"
 BACKBONE="ViT-B-16"
 SEQ_LEN="8"
 HEIGHT="256"
@@ -99,6 +100,7 @@ echo "Checkpoint: ${CHECKPOINT_PATH}"
 echo "Self test: ${SELF_TEST}"
 if [ "${SELF_TEST}" != "1" ]; then
   echo "Tracklet input: ${TRACKLET_INPUT}"
+  echo "Output path: ${OUTPUT_PATH}"
 fi
 
 echo '========================='
@@ -127,6 +129,7 @@ else
     --width "${WIDTH}" \
     --cam-id "${CAM_ID}" \
     --view-id "${VIEW_ID}" \
+    --output "${OUTPUT_PATH}" \
     "${TRACKLET_INPUT}"
 fi
 
