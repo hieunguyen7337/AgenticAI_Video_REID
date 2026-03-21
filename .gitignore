@@ -208,5 +208,5 @@ __marimo__/
 
 # Local model artifacts
 test_data/
-promptpar_pa100k/weights
+promptpar_pa100k_inference/weights
 tfclip_inference/weights
