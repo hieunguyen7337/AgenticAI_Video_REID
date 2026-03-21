@@ -26,7 +26,6 @@ echo 'Fixed job configuration'
 echo '=========='
 PYTHON_SCRIPT="main.py"
 CONDA_ENV_NAME="tfclip_a100"
-CHECKPOINT_PATH="logs_mars/best_model.pth.tar"
 TRACKLET_INPUT="test_data"
 OUTPUT_PATH="outputs/test_data_embeddings.pt"
 BACKBONE="ViT-B-16"
@@ -79,9 +78,9 @@ if [ ! -s "${PYTHON_SCRIPT}" ]; then
   exit 1
 fi
 
-if [ ! -s "${CHECKPOINT_PATH}" ]; then
-  echo "ERROR: checkpoint not found at ${CHECKPOINT_PATH}."
-  echo "Place the TF-CLIP checkpoint at the fixed path above or edit the script config block."
+if [ ! -s "tfclip_inference/weights/best_model.pth.tar" ]; then
+  echo "ERROR: packaged checkpoint not found at tfclip_inference/weights/best_model.pth.tar."
+  echo "Keep the packaged weights directory with the tfclip_inference folder."
   exit 1
 fi
 
@@ -96,7 +95,7 @@ fi
 export CUDA_VISIBLE_DEVICES="${GPU_INDEX}"
 
 echo "Using GPU index: ${CUDA_VISIBLE_DEVICES}"
-echo "Checkpoint: ${CHECKPOINT_PATH}"
+echo "Checkpoint: tfclip_inference/weights/best_model.pth.tar"
 echo "Self test: ${SELF_TEST}"
 if [ "${SELF_TEST}" != "1" ]; then
   echo "Tracklet input: ${TRACKLET_INPUT}"
@@ -111,7 +110,6 @@ date
 if [ "${SELF_TEST}" = "1" ]; then
   python "${PYTHON_SCRIPT}" \
     --self-test \
-    --checkpoint "${CHECKPOINT_PATH}" \
     --device cuda \
     --backbone "${BACKBONE}" \
     --seq-len "${SEQ_LEN}" \
@@ -121,7 +119,6 @@ if [ "${SELF_TEST}" = "1" ]; then
     --view-id "${VIEW_ID}"
 else
   python "${PYTHON_SCRIPT}" \
-    --checkpoint "${CHECKPOINT_PATH}" \
     --device cuda \
     --backbone "${BACKBONE}" \
     --seq-len "${SEQ_LEN}" \

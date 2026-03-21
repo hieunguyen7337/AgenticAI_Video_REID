@@ -16,11 +16,10 @@ except ModuleNotFoundError as exc:
         "Install the runtime requirements first: torch, numpy, and Pillow."
     ) from exc
 
-from tfclip_inference import TFClipInferencer
+from tfclip_inference import DEFAULT_CONFIG, TFClipInferencer, load_inferencer, resolve_device
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
-DEFAULT_CHECKPOINT = Path("logs_mars") / "best_model.pth.tar"
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,14 +37,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=DEFAULT_CHECKPOINT,
-        help="Path to a TF-CLIP checkpoint. Default: logs_mars/best_model.pth.tar",
+        default=None,
+        help="Optional override checkpoint path. Defaults to the packaged tfclip_inference weight file.",
     )
     parser.add_argument("--device", default=None, help="Torch device, for example cpu or cuda.")
-    parser.add_argument("--backbone", default="ViT-B-16", choices=["ViT-B-16", "RN50"])
-    parser.add_argument("--seq-len", type=int, default=8, help="Clip length used during inference.")
-    parser.add_argument("--height", type=int, default=256, help="Input frame height after resize.")
-    parser.add_argument("--width", type=int, default=128, help="Input frame width after resize.")
+    parser.add_argument("--backbone", default=DEFAULT_CONFIG.backbone, choices=["ViT-B-16", "RN50"])
+    parser.add_argument("--seq-len", type=int, default=DEFAULT_CONFIG.seq_len, help="Clip length used during inference.")
+    parser.add_argument("--height", type=int, default=DEFAULT_CONFIG.image_height, help="Input frame height after resize.")
+    parser.add_argument("--width", type=int, default=DEFAULT_CONFIG.image_width, help="Input frame width after resize.")
     parser.add_argument("--cam-id", type=int, default=0, help="Camera id for SIE-enabled checkpoints.")
     parser.add_argument("--view-id", type=int, default=0, help="View id for SIE-enabled checkpoints.")
     parser.add_argument(
@@ -63,7 +62,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def default_device() -> str:
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    return str(resolve_device())
 
 
 def collect_tracklet(inputs: Sequence[str]) -> list[str]:
@@ -136,37 +135,49 @@ def save_batch_embeddings(output_path: Path, names: Sequence[str], embeddings: t
     torch.save(payload, output_path)
 
 
-def build_synthetic_tracklet(num_frames: int) -> list[Image.Image]:
+def build_synthetic_tracklet(num_frames: int, image_size: tuple[int, int]) -> list[Image.Image]:
+    height, width = image_size
     frames: list[Image.Image] = []
     for frame_idx in range(num_frames):
-        canvas = np.zeros((256, 128, 3), dtype=np.uint8)
+        canvas = np.zeros((height, width, 3), dtype=np.uint8)
         canvas[..., 0] = (frame_idx * 25) % 255
-        canvas[..., 1] = np.linspace(0, 255, 128, dtype=np.uint8)[None, :]
-        canvas[..., 2] = np.linspace(255, 0, 256, dtype=np.uint8)[:, None]
+        canvas[..., 1] = np.linspace(0, 255, width, dtype=np.uint8)[None, :]
+        canvas[..., 2] = np.linspace(255, 0, height, dtype=np.uint8)[:, None]
         frames.append(Image.fromarray(canvas, mode="RGB"))
     return frames
 
 
 def main() -> None:
     args = parse_args()
-    checkpoint_path = args.checkpoint.resolve()
-    if not checkpoint_path.is_file():
-        raise FileNotFoundError(
-            f"Checkpoint not found at {checkpoint_path}. "
-            "Place the pretrained .pth/.pth.tar file there or pass --checkpoint explicitly."
-        )
-
     device = args.device or default_device()
-    inferencer = TFClipInferencer.from_checkpoint(
-        checkpoint_path=checkpoint_path,
-        device=device,
-        backbone=args.backbone,
-        seq_len=args.seq_len,
-        image_size=(args.height, args.width),
-    )
+    image_size = (args.height, args.width)
+    if args.checkpoint is not None:
+        checkpoint_path = args.checkpoint.resolve()
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                f"Checkpoint not found at {checkpoint_path}. "
+                "Pass a valid .pth/.pth.tar file or omit --checkpoint to use the packaged TF-CLIP weights."
+            )
+        inferencer = TFClipInferencer.from_checkpoint(
+            checkpoint_path=checkpoint_path,
+            device=device,
+            backbone=args.backbone,
+            seq_len=args.seq_len,
+            image_size=image_size,
+        )
+    else:
+        inferencer = load_inferencer(device=device)
+        checkpoint_path = DEFAULT_CONFIG.checkpoint_path.resolve()
+        if inferencer.seq_len != args.seq_len or inferencer.image_size != image_size or inferencer.model.model_name != args.backbone:
+            inferencer = TFClipInferencer.from_packaged_checkpoint(
+                device=device,
+                backbone=args.backbone,
+                seq_len=args.seq_len,
+                image_size=image_size,
+            )
 
     if args.self_test:
-        tracklet = build_synthetic_tracklet(max(args.seq_len, 8))
+        tracklet = build_synthetic_tracklet(max(args.seq_len, 8), image_size=image_size)
         source_description = f"synthetic in-memory tracklet with {len(tracklet)} frames"
         embedding = inferencer.embed_tracklet(tracklet, cam_id=args.cam_id, view_id=args.view_id)
         flattened = embedding.squeeze(0)

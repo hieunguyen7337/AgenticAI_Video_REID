@@ -2,6 +2,8 @@
 
 This package extracts the TF-CLIP test-time path into a small Python API.
 
+It is packaged in the same standalone style as `promptpar_pa100k`: the inference code and the default checkpoint live under the same `tfclip_inference/` folder so the package can be copied elsewhere without depending on sibling repo directories.
+
 It is intended to keep only the runtime pieces needed for video tracklet inference:
 
 - visual feature extraction with the CLIP visual backbone
@@ -36,6 +38,10 @@ The package is split into a few small modules:
   Exports the public API.
 - `inferencer.py`
   High-level wrapper. Loads checkpoints, preprocesses tracklets, applies dense sampling, runs the model, and returns final embeddings.
+- `config.py`
+  Fixed standalone inference defaults and package-relative weight resolution.
+- `api.py`
+  Lazy public API that loads the packaged checkpoint on first use and caches the inferencer.
 - `model.py`
   Inference-only TF-CLIP model. Keeps the CLIP visual encoder, optional SIE camera/view embedding logic, TMD, and the bottlenecks used at test time.
 - `backbone.py`
@@ -51,21 +57,20 @@ The package is split into a few small modules:
 
 ## Public API
 
-The main entrypoint is `TFClipInferencer`.
+The main entrypoint is either the package-level helper API or `TFClipInferencer`.
 
 ```python
-from tfclip_inference import TFClipInferencer, cosine_similarity
+from tfclip_inference import infer_tracklet
 
-inferencer = TFClipInferencer.from_checkpoint(
-    "best_model.pth.tar",
-    device="cuda",
-    backbone="ViT-B-16",
-    seq_len=8,
-    image_size=(256, 128),
-    stride_size=(16, 16),
-    neck_feat="before",
-    normalize=True,
-)
+embedding = infer_tracklet(frame_paths, cam_id=0, view_id=0, device="cuda")
+```
+
+You can also instantiate the cached packaged inferencer directly:
+
+```python
+from tfclip_inference import TFClipInferencer, cosine_similarity, load_inferencer
+
+inferencer = load_inferencer(device="cuda")
 
 embedding = inferencer.embed_tracklet(frame_paths, cam_id=0, view_id=0)
 gallery_embeddings = inferencer.embed_tracklets(gallery_tracklets)
@@ -76,6 +81,10 @@ scores = cosine_similarity(embedding, gallery_embeddings)
 
 - `TFClipInferencer.from_checkpoint(...)`
   Loads a TF-CLIP checkpoint and builds the inference-only model.
+- `TFClipInferencer.from_packaged_checkpoint(...)`
+  Loads the checkpoint shipped in `tfclip_inference/weights/`.
+- `infer_tracklet(...)`, `infer_tracklets(...)`
+  Package-level helpers that lazily load and cache the packaged inferencer.
 - `embed_tracklet(tracklet, cam_id=0, view_id=0)`
   Returns one final embedding for one person tracklet.
 - `embed_tracklets(tracklets, cam_ids=None, view_ids=None)`
@@ -151,13 +160,14 @@ Yes, the runtime package code is self-contained and can be moved to another loca
 It should still run correctly if all of the following are true:
 
 - you move the whole `tfclip_inference/` folder together
+- you keep `tfclip_inference/weights/best_model.pth.tar` with it
 - `torch`, `numpy`, and `Pillow` are installed
 - Python can import the package from its new parent directory, or you install it as a package
-- you provide a compatible TF-CLIP checkpoint path
+- you optionally provide a different compatible TF-CLIP checkpoint path only if you want to override the packaged one
 
 ### Important caveats
 
-- The package code inside `tfclip_inference/` does not depend on sibling repo files at runtime.
+- The package code inside `tfclip_inference/` does not depend on sibling repo files at runtime when the packaged `weights/` directory is kept intact.
 - The `tests/test_parity.py` file does still depend on the original repo, because it intentionally compares the extracted model against the original implementation.
 - If you move only individual files instead of the full folder, the relative imports will break.
 - If you package this elsewhere, keep the folder name `tfclip_inference` unless you also update the imports.
@@ -180,6 +190,8 @@ A minimal external layout can look like this:
 my_project/
   app.py
   tfclip_inference/
+    api.py
+    config.py
     __init__.py
     inferencer.py
     model.py
@@ -189,8 +201,8 @@ my_project/
     matching.py
     types.py
     README.md
-  checkpoints/
-    best_model.pth.tar
+    weights/
+      best_model.pth.tar
 ```
 
 Then `app.py` can import it with:

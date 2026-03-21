@@ -6,6 +6,7 @@ from typing import Sequence
 
 import torch
 
+from .config import DEFAULT_CONFIG, TFClipConfig
 from .model import TFClipInferenceModel
 from .preprocess import DEFAULT_IMAGE_SIZE, preprocess_clip
 from .sampling import dense_sample_frames
@@ -105,6 +106,36 @@ class TFClipInferencer:
         inferencer = cls(model=model, device=device, image_size=image_size, seq_len=seq_len, normalize=normalize)
         inferencer.load_result = LoadResult(ignored_keys=ignored)
         return inferencer
+
+    @classmethod
+    def from_packaged_checkpoint(
+        cls,
+        device: str | torch.device = "cpu",
+        config: TFClipConfig = DEFAULT_CONFIG,
+        **overrides,
+    ) -> "TFClipInferencer":
+        checkpoint_path = config.checkpoint_path
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                f"Packaged TF-CLIP checkpoint not found at {checkpoint_path}. "
+                "Keep the weights/ directory with the tfclip_inference package."
+            )
+
+        return cls.from_checkpoint(
+            checkpoint_path=checkpoint_path,
+            device=device,
+            backbone=overrides.get("backbone", config.backbone),
+            seq_len=overrides.get("seq_len", config.seq_len),
+            image_size=overrides.get("image_size", config.image_size),
+            stride_size=overrides.get("stride_size", config.stride_size),
+            neck_feat=overrides.get("neck_feat", config.neck_feat),
+            normalize=overrides.get("normalize", config.normalize),
+            camera_num=overrides.get("camera_num", config.camera_num),
+            view_num=overrides.get("view_num", config.view_num),
+            sie_camera=overrides.get("sie_camera", config.sie_camera),
+            sie_view=overrides.get("sie_view", config.sie_view),
+            sie_coe=overrides.get("sie_coe", config.sie_coe),
+        )
 
     def _maybe_normalize(self, embedding: torch.Tensor, normalize: bool) -> torch.Tensor:
         if not normalize:
